@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shooting Gallery</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Playfair+Display:wght@700&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #f5f0e8;
+    --dark: #1a1a1a;
+    --mid: #6b6b6b;
+    --accent: #c0392b;
+    --wood: #8B6914;
+    --wood-light: #c49a2b;
+    --curtain: #2c3e50;
+    --curtain-light: #34495e;
+  }
+
+  body {
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'DM Mono', monospace;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  #title {
+    font-family: 'Playfair Display', serif;
+    font-size: 2rem;
+    letter-spacing: 0.05em;
+    color: var(--dark);
+    margin-bottom: 1rem;
+    text-transform: uppercase;
+  }
+
+  #hud {
+    display: flex;
+    gap: 2.5rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.85rem;
+    letter-spacing: 0.12em;
+    color: var(--mid);
+    text-transform: uppercase;
+  }
+
+  #hud span { color: var(--dark); font-weight: 500; }
+
+  #canvas-wrap {
+    position: relative;
+    border: 3px solid var(--dark);
+    box-shadow: 8px 8px 0 var(--dark);
+    cursor: none;
+  }
+
+  canvas { display: block; }
+
+  #overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(245,240,232,0.92);
+    gap: 1rem;
+  }
+
+  #overlay h2 {
+    font-family: 'Playfair Display', serif;
+    font-size: 2.2rem;
+    color: var(--dark);
+  }
+
+  #overlay p {
+    font-size: 0.8rem;
+    color: var(--mid);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    text-align: center;
+    line-height: 1.8;
+  }
+
+  #overlay button {
+    margin-top: 0.5rem;
+    padding: 0.65rem 2.2rem;
+    background: var(--dark);
+    color: var(--bg);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.85rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  #overlay button:hover { background: var(--accent); }
+
+  #miss-flash {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0;
+    background: rgba(192,57,43,0.18);
+    transition: opacity 0.08s;
+  }
+
+  #ammo-bar {
+    display: flex;
+    gap: 6px;
+    margin-top: 0.25rem;
+  }
+
+  .bullet {
+    width: 8px;
+    height: 20px;
+    background: var(--dark);
+    border-radius: 2px 2px 0 0;
+    transition: background 0.2s;
+  }
+  .bullet.spent { background: #ccc; }
+</style>
+</head>
+<body>
+
+<div id="title">Shooting Gallery</div>
+<div id="hud">
+  <div>Score &nbsp;<span id="score-val">0</span></div>
+  <div>Hits &nbsp;<span id="hits-val">0</span></div>
+  <div>Time &nbsp;<span id="time-val">60</span>s</div>
+</div>
+<div id="ammo-bar"></div>
+
+<div id="canvas-wrap">
+  <canvas id="canvas" width="760" height="420"></canvas>
+  <div id="miss-flash"></div>
+  <div id="overlay">
+    <h2>Shooting Gallery</h2>
+    <p>Move your mouse to aim.<br>Click to fire your pop gun.<br>Hit as many targets as you can in 60 seconds.</p>
+    <button id="start-btn">Start Game</button>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+const overlay   = document.getElementById('overlay');
+const startBtn  = document.getElementById('start-btn');
+const scoreEl   = document.getElementById('score-val');
+const hitsEl    = document.getElementById('hits-val');
+const timeEl    = document.getElementById('time-val');
+const missFlash = document.getElementById('miss-flash');
+const ammoBar   = document.getElementById('ammo-bar');
+
+// ── Config ──────────────────────────────────────────────────────────────────
+const MAX_AMMO     = 6;
+const RELOAD_TIME  = 1200; // ms
+const GAME_DURATION = 60;
+const LANES        = [H * 0.38, H * 0.58, H * 0.74];
+const TARGET_TYPES = ['duck', 'can', 'star'];
+
+// ── State ────────────────────────────────────────────────────────────────────
+let score = 0, hits = 0, ammo = MAX_AMMO, reloading = false;
+let timeLeft = GAME_DURATION;
+let gameRunning = false;
+let targets = [];
+let particles = [];
+let mouse = { x: W / 2, y: H / 2 };
+let muzzleFlash = 0;
+let reloadProgress = 0;
+let timerInterval = null;
+let spawnInterval = null;
+let lastTime = 0;
+let gunRecoil = 0;
+
+// ── Ammo UI ──────────────────────────────────────────────────────────────────
+function buildAmmoBar() {
+  ammoBar.innerHTML = '';
+  for (let i = 0; i < MAX_AMMO; i++) {
+    const d = document.createElement('div');
+    d.className = 'bullet' + (i >= ammo ? ' spent' : '');
+    ammoBar.appendChild(d);
+  }
+}
+
+// ── Target factory ───────────────────────────────────────────────────────────
+function spawnTarget() {
+  if (!gameRunning) return;
+  const lane   = LANES[Math.floor(Math.random() * LANES.length)];
+  const fromLeft = Math.random() < 0.5;
+  const type   = TARGET_TYPES[Math.floor(Math.random() * TARGET_TYPES.length)];
+  const speedBase = 90 + Math.random() * 70 + (GAME_DURATION - timeLeft) * 0.8;
+  const radius = lane === LANES[0] ? 22 : lane === LANES[1] ? 18 : 14;
+
+  targets.push({
+    x: fromLeft ? -60 : W + 60,
+    y: lane,
+    vx: fromLeft ? speedBase : -speedBase,
+    type,
+    radius,
+    hit: false,
+    hitTimer: 0,
+    wobble: 0,
+    wobbleV: 0,
+  });
+}
+
+// ── Particles ────────────────────────────────────────────────────────────────
+function spawnParticles(x, y, color) {
+  for (let i = 0; i < 14; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 1.5 + Math.random() * 3.5;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 1.5,
+      life: 1,
+      decay: 0.035 + Math.random() * 0.03,
+      r: 2 + Math.random() * 3,
+      color,
+    });
+  }
+}
+
+// ── Drawing helpers ──────────────────────────────────────────────────────────
+function drawScene() {
+  // Sky / background
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, H * 0.55);
+  skyGrad.addColorStop(0, '#dce8f0');
+  skyGrad.addColorStop(1, '#eef4f8');
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0, 0, W, H * 0.55);
+
+  // Ground bands
+  const groundColors = ['#b5c98a','#9ab372','#7d9c5e'];
+  const bandH = (H - H * 0.55) / 3;
+  for (let i = 0; i < 3; i++) {
+    ctx.fillStyle = groundColors[i];
+    ctx.fillRect(0, H * 0.55 + i * bandH, W, bandH + 1);
+  }
+
+  // Fence posts
+  ctx.strokeStyle = '#8B6914';
+  ctx.lineWidth = 3;
+  for (let x = 10; x < W; x += 48) {
+    ctx.beginPath(); ctx.moveTo(x, H * 0.55 - 4); ctx.lineTo(x, H * 0.55 + 18); ctx.stroke();
+  }
+  ctx.beginPath(); ctx.moveTo(0, H * 0.55 + 10); ctx.lineTo(W, H * 0.55 + 10);
+  ctx.lineWidth = 4; ctx.strokeStyle = '#a07820'; ctx.stroke();
+
+  // Stage curtain rails
+  ctx.fillStyle = '#2c3e50';
+  ctx.fillRect(0, 0, 16, H);
+  ctx.fillRect(W - 16, 0, 16, H);
+  // curtain stripes
+  for (let y = 0; y < H; y += 32) {
+    ctx.fillStyle = y % 64 === 0 ? '#34495e' : '#2c3e50';
+    ctx.fillRect(0, y, 16, 32);
+    ctx.fillRect(W - 16, y, 16, 32);
+  }
+}
+
+function drawTarget(t) {
+  ctx.save();
+  ctx.translate(t.x, t.y + t.wobble);
+
+  const alpha = t.hit ? Math.max(0, 1 - t.hitTimer * 3) : 1;
+  ctx.globalAlpha = alpha;
+
+  if (t.type === 'duck') {
+    drawDuck(t.radius, t.vx > 0);
+  } else if (t.type === 'can') {
+    drawCan(t.radius);
+  } else {
+    drawStar(t.radius);
+  }
+
+  ctx.restore();
+}
+
+function drawDuck(r, facingRight) {
+  ctx.save();
+  if (!facingRight) ctx.scale(-1, 1);
+  // Body
+  ctx.fillStyle = '#f0c040';
+  ctx.beginPath(); ctx.ellipse(0, 0, r, r * 0.75, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#c09020'; ctx.lineWidth = 1.5; ctx.stroke();
+  // Head
+  ctx.fillStyle = '#f0c040';
+  ctx.beginPath(); ctx.arc(r * 0.65, -r * 0.55, r * 0.45, 0, Math.PI * 2); ctx.fill();
+  ctx.stroke();
+  // Eye
+  ctx.fillStyle = '#1a1a1a';
+  ctx.beginPath(); ctx.arc(r * 0.82, -r * 0.65, r * 0.07, 0, Math.PI * 2); ctx.fill();
+  // Bill
+  ctx.fillStyle = '#e08020';
+  ctx.beginPath(); ctx.ellipse(r * 1.1, -r * 0.52, r * 0.25, r * 0.1, 0.2, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+function drawCan(r) {
+  const h = r * 1.8;
+  ctx.fillStyle = '#b0b8c8';
+  ctx.beginPath();
+  ctx.roundRect(-r * 0.7, -h / 2, r * 1.4, h, 3);
+  ctx.fill();
+  ctx.strokeStyle = '#808898'; ctx.lineWidth = 1.5; ctx.stroke();
+  // Label stripe
+  ctx.fillStyle = '#e84040';
+  ctx.fillRect(-r * 0.7, -h * 0.1, r * 1.4, h * 0.3);
+  // Rim lines
+  ctx.strokeStyle = '#606878'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(-r * 0.7, -h * 0.4); ctx.lineTo(r * 0.7, -h * 0.4); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-r * 0.7,  h * 0.4); ctx.lineTo(r * 0.7,  h * 0.4); ctx.stroke();
+}
+
+function drawStar(r) {
+  ctx.fillStyle = '#f0c040';
+  ctx.strokeStyle = '#c09020'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const angle = (i * Math.PI) / 5 - Math.PI / 2;
+    const rad = i % 2 === 0 ? r : r * 0.44;
+    i === 0 ? ctx.moveTo(Math.cos(angle) * rad, Math.sin(angle) * rad)
+            : ctx.lineTo(Math.cos(angle) * rad, Math.sin(angle) * rad);
+  }
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+}
+
+function drawCrosshair(x, y) {
+  const s = 18;
+  const gap = 5;
+  ctx.save();
+  ctx.strokeStyle = '#1a1a1a';
+  ctx.lineWidth = 1.5;
+
+  ctx.beginPath();
+  ctx.moveTo(x - s, y); ctx.lineTo(x - gap, y);
+  ctx.moveTo(x + gap, y); ctx.lineTo(x + s, y);
+  ctx.moveTo(x, y - s); ctx.lineTo(x, y - gap);
+  ctx.moveTo(x, y + gap); ctx.lineTo(x, y + s);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(x, y, gap + 3, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Muzzle flash ring
+  if (muzzleFlash > 0) {
+    ctx.globalAlpha = muzzleFlash;
+    ctx.strokeStyle = '#f0c040';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x, y, 14, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+function drawGun() {
+  const gx = W / 2, gy = H - 10 + gunRecoil * 18;
+  ctx.save();
+  ctx.translate(gx, gy);
+
+  // Barrel
+  ctx.fillStyle = '#2a2a2a';
+  ctx.beginPath();
+  ctx.roundRect(-6, -55, 12, 48, 3);
+  ctx.fill();
+
+  // Body / handle
+  ctx.fillStyle = '#3a3a3a';
+  ctx.beginPath();
+  ctx.roundRect(-14, -14, 28, 28, 4);
+  ctx.fill();
+
+  // Pop detail
+  ctx.fillStyle = '#f0c040';
+  ctx.beginPath();
+  ctx.arc(0, -8, 5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Highlight
+  ctx.fillStyle = 'rgba(255,255,255,0.12)';
+  ctx.fillRect(-4, -52, 4, 40);
+
+  ctx.restore();
+}
+
+function drawParticles() {
+  for (const p of particles) {
+    ctx.save();
+    ctx.globalAlpha = p.life;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawReloadBar() {
+  if (!reloading) return;
+  const bw = 160, bh = 8;
+  const bx = W / 2 - bw / 2, by = H - 36;
+  ctx.fillStyle = '#ddd';
+  ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 4); ctx.fill();
+  ctx.fillStyle = '#c0392b';
+  ctx.beginPath(); ctx.roundRect(bx, by, bw * reloadProgress, bh, 4); ctx.fill();
+  ctx.fillStyle = '#1a1a1a';
+  ctx.font = '500 10px DM Mono, monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('RELOADING', W / 2, by - 4);
+}
+
+// ── Shooting ─────────────────────────────────────────────────────────────────
+function shoot() {
+  if (!gameRunning || reloading || ammo <= 0) return;
+  ammo--;
+  buildAmmoBar();
+  muzzleFlash = 1;
+  gunRecoil = 1;
+
+  let hit = false;
+  // Check targets (front-to-back, closest lane last drawn = first in render)
+  for (let i = targets.length - 1; i >= 0; i--) {
+    const t = targets[i];
+    if (t.hit) continue;
+    const dx = mouse.x - t.x;
+    const dy = mouse.y - (t.y + t.wobble);
+    if (Math.sqrt(dx * dx + dy * dy) < t.radius * 1.3) {
+      t.hit = true;
+      t.hitTimer = 0;
+      const pts = t.type === 'star' ? 30 : t.type === 'duck' ? 20 : 10;
+      score += pts;
+      hits++;
+      scoreEl.textContent = score;
+      hitsEl.textContent  = hits;
+      const color = t.type === 'duck' ? '#f0c040' : t.type === 'can' ? '#e84040' : '#c0d040';
+      spawnParticles(t.x, t.y, color);
+      hit = true;
+      break;
+    }
+  }
+
+  if (!hit) {
+    missFlash.style.opacity = 1;
+    setTimeout(() => { missFlash.style.opacity = 0; }, 80);
+  }
+
+  if (ammo === 0) startReload();
+}
+
+function startReload() {
+  reloading = true;
+  reloadProgress = 0;
+  const start = performance.now();
+  function tick(now) {
+    reloadProgress = Math.min(1, (now - start) / RELOAD_TIME);
+    if (reloadProgress < 1) {
+      requestAnimationFrame(tick);
+    } else {
+      ammo = MAX_AMMO;
+      reloading = false;
+      buildAmmoBar();
+    }
+  }
+  requestAnimationFrame(tick);
+}
+
+// ── Game loop ────────────────────────────────────────────────────────────────
+function loop(now) {
+  if (!gameRunning) return;
+  const dt = Math.min((now - lastTime) / 1000, 0.05);
+  lastTime = now;
+
+  // Update muzzle flash & recoil
+  muzzleFlash = Math.max(0, muzzleFlash - dt * 8);
+  gunRecoil   = Math.max(0, gunRecoil   - dt * 6);
+
+  // Update targets
+  for (const t of targets) {
+    if (!t.hit) {
+      t.x += t.vx * dt;
+      t.wobbleV += (-t.wobble * 18 - t.wobbleV * 3) * dt;
+      t.wobble  += t.wobbleV * dt * 40;
+    } else {
+      t.hitTimer += dt;
+    }
+  }
+  // Remove off-screen or fully faded
+  targets = targets.filter(t => {
+    if (t.hit) return t.hitTimer < 0.4;
+    return t.x > -120 && t.x < W + 120;
+  });
+
+  // Update particles
+  for (const p of particles) {
+    p.x += p.vx; p.y += p.vy; p.vy += 0.12;
+    p.life -= p.decay;
+  }
+  particles = particles.filter(p => p.life > 0);
+
+  // Draw
+  ctx.clearRect(0, 0, W, H);
+  drawScene();
+  // Sort targets: farther lane (lower index) drawn first
+  const sorted = [...targets].sort((a, b) => a.y - b.y);
+  for (const t of sorted) drawTarget(t);
+  drawParticles();
+  drawGun();
+  drawReloadBar();
+  drawCrosshair(mouse.x, mouse.y);
+
+  requestAnimationFrame(loop);
+}
+
+// ── Start / End ──────────────────────────────────────────────────────────────
+function startGame() {
+  score = 0; hits = 0; ammo = MAX_AMMO;
+  timeLeft = GAME_DURATION;
+  targets = []; particles = [];
+  reloading = false; reloadProgress = 0;
+  muzzleFlash = 0; gunRecoil = 0;
+  scoreEl.textContent = '0';
+  hitsEl.textContent  = '0';
+  timeEl.textContent  = GAME_DURATION;
+  buildAmmoBar();
+
+  overlay.style.display = 'none';
+  gameRunning = true;
+  lastTime = performance.now();
+  requestAnimationFrame(loop);
+
+  timerInterval = setInterval(() => {
+    timeLeft--;
+    timeEl.textContent = timeLeft;
+    if (timeLeft <= 0) endGame();
+  }, 1000);
+
+  spawnInterval = setInterval(spawnTarget, 900);
+  // Spawn a few immediately
+  setTimeout(spawnTarget, 100);
+  setTimeout(spawnTarget, 400);
+}
+
+function endGame() {
+  gameRunning = false;
+  clearInterval(timerInterval);
+  clearInterval(spawnInterval);
+
+  overlay.style.display = 'flex';
+  overlay.innerHTML = `
+    <h2>Game Over</h2>
+    <p>Final Score &nbsp; <strong>${score}</strong><br>
+       Targets Hit &nbsp; <strong>${hits}</strong></p>
+    <button id="start-btn">Play Again</button>
+  `;
+  document.getElementById('start-btn').addEventListener('click', startGame);
+}
+
+// ── Events ───────────────────────────────────────────────────────────────────
+canvas.addEventListener('mousemove', e => {
+  const rect = canvas.getBoundingClientRect();
+  mouse.x = e.clientX - rect.left;
+  mouse.y = e.clientY - rect.top;
+});
+
+canvas.addEventListener('click', shoot);
+
+// Right-click to reload manually
+canvas.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  if (!reloading && ammo < MAX_AMMO && gameRunning) startReload();
+});
+
+startBtn.addEventListener('click', startGame);
+buildAmmoBar();
+</script>
+</body>
+</html>
