@@ -180,6 +180,7 @@ let muzzleFlash = 0;
 let reloadProgress = 0;
 let timerInterval = null;
 let spawnInterval = null;
+let reloadAnimationFrameId = null;
 let lastTime = 0;
 let gunRecoil = 0;
 
@@ -467,16 +468,18 @@ function startReload() {
   reloadProgress = 0;
   const start = performance.now();
   function tick(now) {
+    if (!gameRunning) return;
     reloadProgress = Math.min(1, (now - start) / RELOAD_TIME);
     if (reloadProgress < 1) {
-      requestAnimationFrame(tick);
+      reloadAnimationFrameId = requestAnimationFrame(tick);
     } else {
+      reloadAnimationFrameId = null;
       ammo = MAX_AMMO;
       reloading = false;
       buildAmmoBar();
     }
   }
-  requestAnimationFrame(tick);
+  reloadAnimationFrameId = requestAnimationFrame(tick);
 }
 
 // ── Game loop ────────────────────────────────────────────────────────────────
@@ -559,6 +562,12 @@ function endGame() {
   gameRunning = false;
   clearInterval(timerInterval);
   clearInterval(spawnInterval);
+  if (reloadAnimationFrameId !== null) {
+    cancelAnimationFrame(reloadAnimationFrameId);
+    reloadAnimationFrameId = null;
+  }
+  reloading = false;
+  reloadProgress = 0;
 
   overlay.style.display = 'flex';
   overlay.innerHTML = `
