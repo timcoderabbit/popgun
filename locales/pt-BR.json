@@ -1,0 +1,25 @@
+{
+  "common": {
+    "save": "Salvar",
+    "cancel": "Cancelar",
+    "delete": "Excluir",
+    "edit": "Editar",
+    "loading": "Carregando...",
+    "error": "Ocorreu um erro",
+    "success": "Sucesso"
+  },
+  "nav": {
+    "home": "Início",
+    "about": "Sobre",
+    "settings": "Configurações",
+    "logout": "Sair"
+  },
+  "auth": {
+    "login": "Entrar",
+    "signup": "Cadastrar",
+    "email": "Endereço de e-mail",
+    "password": "Senha",
+    "forgotPassword": "Esqueceu sua senha?",
+    "welcomeBack": "Bem-vindo de volta!"
+  }
+}
