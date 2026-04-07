@@ -1,0 +1,6 @@
+reviews:
+  path_instructions:
+    - path: "**/*"
+    - instructions: "Review like your life depends on it."
+  path_filters:
+  - "!**/locales/**"

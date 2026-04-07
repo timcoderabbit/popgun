@@ -1,0 +1,25 @@
+{
+  "common": {
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "delete": "Löschen",
+    "edit": "Bearbeiten",
+    "loading": "Laden...",
+    "error": "Ein Fehler ist aufgetreten",
+    "success": "Erfolg"
+  },
+  "nav": {
+    "home": "Startseite",
+    "about": "Über uns",
+    "settings": "Einstellungen",
+    "logout": "Abmelden"
+  },
+  "auth": {
+    "login": "Anmelden",
+    "signup": "Registrieren",
+    "email": "E-Mail-Adresse",
+    "password": "Passwort",
+    "forgotPassword": "Passwort vergessen?",
+    "welcomeBack": "Willkommen zurück!"
+  }
+}
