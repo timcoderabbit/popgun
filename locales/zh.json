@@ -1,0 +1,25 @@
+{
+  "common": {
+    "save": "保存",
+    "cancel": "取消",
+    "delete": "删除",
+    "edit": "编辑",
+    "loading": "加载中...",
+    "error": "发生错误",
+    "success": "成功"
+  },
+  "nav": {
+    "home": "首页",
+    "about": "关于",
+    "settings": "设置",
+    "logout": "退出登录"
+  },
+  "auth": {
+    "login": "登录",
+    "signup": "注册",
+    "email": "电子邮件地址",
+    "password": "密码",
+    "forgotPassword": "忘记密码？",
+    "welcomeBack": "欢迎回来！"
+  }
+}

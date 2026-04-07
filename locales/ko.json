@@ -1,0 +1,25 @@
+{
+  "common": {
+    "save": "저장",
+    "cancel": "취소",
+    "delete": "삭제",
+    "edit": "편집",
+    "loading": "로딩 중...",
+    "error": "오류가 발생했습니다",
+    "success": "성공"
+  },
+  "nav": {
+    "home": "홈",
+    "about": "소개",
+    "settings": "설정",
+    "logout": "로그아웃"
+  },
+  "auth": {
+    "login": "로그인",
+    "signup": "회원가입",
+    "email": "이메일 주소",
+    "password": "비밀번호",
+    "forgotPassword": "비밀번호를 잊으셨나요?",
+    "welcomeBack": "다시 오신 것을 환영합니다!"
+  }
+}
