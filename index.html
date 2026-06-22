@@ -128,6 +128,18 @@
     transition: background 0.2s;
   }
   .bullet.spent { background: #ccc; }
+
+  #combo-display {
+    font-size: 0.85rem;
+    letter-spacing: 0.12em;
+    color: var(--mid);
+    text-transform: uppercase;
+    margin-top: 0.25rem;
+    min-height: 1.2em;
+    transition: color 0.15s;
+  }
+  #combo-display.active { color: var(--accent); font-weight: 500; }
+  #combo-display.max    { color: #c49a2b; font-weight: 500; }
 </style>
 </head>
 <body>
@@ -139,6 +151,7 @@
   <div>Time &nbsp;<span id="time-val">60</span>s</div>
 </div>
 <div id="ammo-bar"></div>
+<div id="combo-display"></div>
 
 <div id="canvas-wrap">
   <canvas id="canvas" width="760" height="420"></canvas>
@@ -155,13 +168,14 @@ const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 const W = canvas.width, H = canvas.height;
 
-const overlay   = document.getElementById('overlay');
-const startBtn  = document.getElementById('start-btn');
-const scoreEl   = document.getElementById('score-val');
-const hitsEl    = document.getElementById('hits-val');
-const timeEl    = document.getElementById('time-val');
-const missFlash = document.getElementById('miss-flash');
-const ammoBar   = document.getElementById('ammo-bar');
+const overlay      = document.getElementById('overlay');
+const startBtn     = document.getElementById('start-btn');
+const scoreEl      = document.getElementById('score-val');
+const hitsEl       = document.getElementById('hits-val');
+const timeEl       = document.getElementById('time-val');
+const missFlash    = document.getElementById('miss-flash');
+const ammoBar      = document.getElementById('ammo-bar');
+const comboDisplay = document.getElementById('combo-display');
 
 // ── Config ──────────────────────────────────────────────────────────────────
 const MAX_AMMO     = 6;
@@ -176,6 +190,7 @@ let timeLeft = GAME_DURATION;
 let gameRunning = false;
 let targets = [];
 let particles = [];
+let floatingTexts = [];
 let mouse = { x: W / 2, y: H / 2 };
 let muzzleFlash = 0;
 let reloadProgress = 0;
@@ -184,6 +199,9 @@ let spawnInterval = null;
 let reloadAnimationFrameId = null;
 let lastTime = 0;
 let gunRecoil = 0;
+let combo = 0;
+let multiplier = 1;
+let shots = 0;
 
 // ── Ammo UI ──────────────────────────────────────────────────────────────────
 function buildAmmoBar() {
@@ -193,6 +211,43 @@ function buildAmmoBar() {
     d.className = 'bullet' + (i >= ammo ? ' spent' : '');
     ammoBar.appendChild(d);
   }
+}
+
+// ── Combo HUD ────────────────────────────────────────────────────────────────
+function getMultiplier(c) {
+  if (c >= 8) return 5;
+  if (c >= 6) return 4;
+  if (c >= 4) return 3;
+  if (c >= 2) return 2;
+  return 1;
+}
+
+function updateComboDisplay() {
+  if (combo < 2) {
+    comboDisplay.textContent = '';
+    comboDisplay.className = '';
+  } else {
+    const m = getMultiplier(combo);
+    comboDisplay.textContent = `${combo}× streak  ·  ${m}× pts`;
+    comboDisplay.className = m >= 5 ? 'max' : 'active';
+  }
+}
+
+// ── Floating score texts ──────────────────────────────────────────────────────
+function spawnFloatingText(x, y, text, color) {
+  floatingTexts.push({ x, y, text, color, life: 1, vy: -1.2 });
+}
+
+function drawFloatingTexts() {
+  ctx.save();
+  for (const ft of floatingTexts) {
+    ctx.globalAlpha = ft.life;
+    ctx.fillStyle = ft.color;
+    ctx.font = '700 13px DM Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(ft.text, ft.x, ft.y);
+  }
+  ctx.restore();
 }
 
 // ── Target factory ───────────────────────────────────────────────────────────
@@ -430,6 +485,7 @@ function drawReloadBar() {
 function shoot() {
   if (!gameRunning || reloading || ammo <= 0) return;
   ammo--;
+  shots++;
   buildAmmoBar();
   muzzleFlash = 1;
   gunRecoil = 1;
@@ -444,19 +500,34 @@ function shoot() {
     if (Math.sqrt(dx * dx + dy * dy) < t.radius * 1.3) {
       t.hit = true;
       t.hitTimer = 0;
-      const pts = t.type === 'star' ? 30 : t.type === 'duck' ? 20 : 10;
-      score += pts;
+
+      // Combo
+      combo++;
+      multiplier = getMultiplier(combo);
+      updateComboDisplay();
+
+      const basePts = t.type === 'star' ? 30 : t.type === 'duck' ? 20 : 10;
+      const earned  = basePts * multiplier;
+      score += earned;
       hits++;
       scoreEl.textContent = score;
       hitsEl.textContent  = hits;
+
       const color = t.type === 'duck' ? '#f0c040' : t.type === 'can' ? '#e84040' : '#c0d040';
       spawnParticles(t.x, t.y, color);
+
+      const label = multiplier > 1 ? `+${earned} ×${multiplier}` : `+${earned}`;
+      spawnFloatingText(t.x, t.y - t.radius - 6, label, multiplier >= 5 ? '#c49a2b' : color);
+
       hit = true;
       break;
     }
   }
 
   if (!hit) {
+    combo = 0;
+    multiplier = 1;
+    updateComboDisplay();
     missFlash.style.opacity = 1;
     setTimeout(() => { missFlash.style.opacity = 0; }, 80);
   }
@@ -516,6 +587,13 @@ function loop(now) {
   }
   particles = particles.filter(p => p.life > 0);
 
+  // Update floating texts
+  for (const ft of floatingTexts) {
+    ft.y += ft.vy;
+    ft.life -= 0.025;
+  }
+  floatingTexts = floatingTexts.filter(ft => ft.life > 0);
+
   // Draw
   ctx.clearRect(0, 0, W, H);
   drawScene();
@@ -523,6 +601,7 @@ function loop(now) {
   const sorted = [...targets].sort((a, b) => a.y - b.y);
   for (const t of sorted) drawTarget(t);
   drawParticles();
+  drawFloatingTexts();
   drawGun();
   drawReloadBar();
   drawCrosshair(mouse.x, mouse.y);
@@ -534,13 +613,15 @@ function loop(now) {
 function startGame() {
   score = 0; hits = 0; ammo = MAX_AMMO;
   timeLeft = GAME_DURATION;
-  targets = []; particles = [];
+  targets = []; particles = []; floatingTexts = [];
   reloading = false; reloadProgress = 0;
   muzzleFlash = 0; gunRecoil = 0;
+  combo = 0; multiplier = 1; shots = 0;
   scoreEl.textContent = '0';
   hitsEl.textContent  = '0';
   timeEl.textContent  = GAME_DURATION;
   buildAmmoBar();
+  updateComboDisplay();
 
   overlay.style.display = 'none';
   gameRunning = true;
@@ -569,12 +650,16 @@ function endGame() {
   }
   reloading = false;
   reloadProgress = 0;
+  combo = 0; multiplier = 1;
+  updateComboDisplay();
 
   overlay.style.display = 'flex';
+  const accuracy = shots > 0 ? Math.round((hits / shots) * 100) : 0;
   overlay.innerHTML = `
     <h2>Game Over</h2>
     <p>Final Score &nbsp; <strong>${score}</strong><br>
-       Targets Hit &nbsp; <strong>${hits}</strong></p>
+       Targets Hit &nbsp; <strong>${hits}</strong><br>
+       Accuracy &nbsp; <strong>${accuracy}%</strong> &nbsp;(${hits}/${shots})</p>
     <button id="start-btn">Play Again</button>
   `;
   document.getElementById('start-btn').addEventListener('click', startGame);
